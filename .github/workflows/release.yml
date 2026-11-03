@@ -1,0 +1,42 @@
+name: Release addon
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch main for the release ancestry check
+        run: git fetch origin main:refs/remotes/origin/main
+      - name: Verify tag version and membership of main
+        run: python3 scripts/check_release.py "$RELEASE_TAG"
+      - name: Package installable addon and checksum
+        run: python3 scripts/package.py --tag "$RELEASE_TAG"
+      - name: Publish GitHub release assets
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.zip dist/*.sha256 --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.zip dist/*.sha256 \
+              --verify-tag --title "Forever Trails $RELEASE_TAG" --generate-notes
+          fi

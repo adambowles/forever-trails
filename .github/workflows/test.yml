@@ -1,0 +1,32 @@
+name: Test addon
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y lua5.1
+      - name: Check Lua syntax
+        run: find ForeverTrails tests -name '*.lua' -print0 | xargs -0 -n 1 luac5.1 -p
+      - name: Test recording, retention and map integration
+        run: lua5.1 tests/run.lua
+      - name: Validate addon manifest
+        run: python3 scripts/package.py --check
+      - name: Test packaging and release guards
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
