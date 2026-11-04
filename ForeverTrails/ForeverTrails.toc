@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: Forever Trails
+## Notes: Every adventure leaves a trace. Record your travels on the world map.
+## Author: Adam Bowles
+## Version: 0.1.0
+## SavedVariables: ForeverTrailsDB
+## IconTexture: Interface\Icons\Ability_Tracking
+
+Defaults.lua
+Compat.lua
+Tracking/Simplify.lua
+Data/Migrations.lua
+Data/Store.lua
+Tracking/Recorder.lua
+Map/Geometry.lua
+Map/Overlay.lua
+UI/Controls.lua
+Core.lua
