@@ -2,7 +2,7 @@ local _, FT = ...
 local Overlay = {}
 Overlay.__index = Overlay
 FT.Overlay = Overlay
-local TRAIL_FRAME_LEVEL = "PIN_FRAME_LEVEL_FOREVER_TRAILS"
+local MAP_ART_FRAME_LEVEL = "PIN_FRAME_LEVEL_MAP_HIGHLIGHT"
 
 local function newBuffer(parent)
     local frame = CreateFrame("Frame", nil, parent)
@@ -18,13 +18,6 @@ function Overlay.New(map)
     self.frame:SetAllPoints(map:GetCanvas())
     self.front, self.back = newBuffer(map:GetCanvas()), newBuffer(map:GetCanvas())
     self.lines = self.front.lines
-    -- Outdoor exploration textures are managed pins well above the base canvas.
-    -- Reserve a layer above map art/highlights and below foreground markers.
-    local levels = map:GetPinFrameLevelsManager()
-    if levels:InsertFrameLevelAbove(TRAIL_FRAME_LEVEL, "PIN_FRAME_LEVEL_MAP_HIGHLIGHT") then
-        -- Inserting a definition shifts higher levels, including already acquired pins.
-        map:ExecuteOnAllPins(function(pin) pin:ApplyFrameLevel() end)
-    end
     self:ApplyFrameLevel()
     self.frame:EnableMouse(false)
     -- The existing map ScrollFrame clips its scrolling canvas and all descendants.
@@ -43,11 +36,16 @@ function Overlay.New(map)
 end
 
 function Overlay:ApplyFrameLevel()
-    local level = self.map:GetPinFrameLevelsManager():GetValidFrameLevel(TRAIL_FRAME_LEVEL)
+    if InCombatLockdown() then return false end
+    -- Read the existing ordering without modifying Blizzard's definitions or pins.
+    -- The stock map's debug band separates this last art layer from normal markers.
+    local level = self.map:GetPinFrameLevelsManager():GetValidFrameLevel(MAP_ART_FRAME_LEVEL) + 1
+    if level == self.appliedFrameLevel then return true end
     self.frame:SetFrameLevel(level)
-    -- Both drawings share the reserved level, keeping foreground pins above them.
     self.front.frame:SetFrameLevel(level)
     self.back.frame:SetFrameLevel(level)
+    self.appliedFrameLevel = level
+    return true
 end
 
 function Overlay:Reset()

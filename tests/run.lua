@@ -446,7 +446,7 @@ test("outdoor trails draw above map art and below quest and player markers", fun
         "PIN_FRAME_LEVEL_QUEST_BLOB", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT" }) do
         assert(layer > levels:GetValidFrameLevel(art), "Trail is underneath " .. art)
     end
-    for _, marker in ipairs({ "PIN_FRAME_LEVEL_DEBUG", "PIN_FRAME_LEVEL_QUEST_OFFER",
+    for _, marker in ipairs({ "PIN_FRAME_LEVEL_DIG_SITE", "PIN_FRAME_LEVEL_QUEST_OFFER",
         "PIN_FRAME_LEVEL_GROUP_MEMBER" }) do
         assert(layer < levels:GetValidFrameLevel(marker), "Trail covers " .. marker)
     end
@@ -454,18 +454,102 @@ test("outdoor trails draw above map art and below quest and player markers", fun
     equal(overlay.frame.mouseEnabled, false)
 end)
 
-test("adding the trail layer updates pins that already exist", function()
+test("trail setup leaves native map definitions and existing pins untouched", function()
     local h = Mock.New()
-    local before = {}
-    for _, pin in ipairs(h.map.pins) do before[pin] = pin:GetFrameLevel() end
-    h:Boot()
+    local before, definitions = {}, {}
     local levels = h.map:GetPinFrameLevelsManager()
+    for name, level in pairs(levels.definitions) do definitions[name] = level end
+    for _, pin in ipairs(h.map.pins) do before[pin] = pin:GetFrameLevel() end
+    levels.InsertFrameLevelAbove = function() error("Addon must not change shared map definitions") end
+    h.map.ExecuteOnAllPins = function() error("Addon must not update native map pins") end
+    h:Boot()
+    h:ShowMap(); h:Move(0.11, 0.2); h:Frames(4)
+    for name, level in pairs(levels.definitions) do equal(level, definitions[name]) end
+    for name, level in pairs(definitions) do equal(levels.definitions[name], level) end
     for _, pin in ipairs(h.map.pins) do
-        equal(pin:GetFrameLevel(), levels:GetValidFrameLevel(pin.frameLevelType))
-        if pin.frameLevelType == "PIN_FRAME_LEVEL_QUEST_OFFER" then
-            assert(pin:GetFrameLevel() > before[pin], "Existing marker was not moved above the new layer")
-        end
+        equal(pin:GetFrameLevel(), before[pin])
     end
+end)
+
+test("map setup waits for combat to end while recording continues", function()
+    local h = Mock.New()
+    h.inCombat = true
+    h:Boot(); h:Move(0.11, 0.2)
+    equal(h.FT.overlay, nil); equal(h.FT.controls, nil)
+    equal(#h.map.providers, 0); equal(h.FT.store.character.pointCount, 2)
+    local last = h.FT.recorder.last
+    h.inCombat = false; h:Fire("PLAYER_REGEN_ENABLED")
+    assert(h.FT.overlay and h.FT.controls)
+    equal(#h.map.providers, 1); equal(h.FT.recorder.last, last)
+    h:Fire("PLAYER_REGEN_ENABLED"); equal(#h.map.providers, 1)
+    h:ShowMap(); h:Frames(4); equal(h.FT.overlay.used, 1)
+end)
+
+test("a map addon loaded in combat attaches automatically afterwards", function()
+    local h = Mock.New()
+    WorldMapFrame = nil
+    h:Boot(); equal(h.FT.overlay, nil)
+    h.inCombat, WorldMapFrame = true, h.map
+    h:Fire("ADDON_LOADED", "Blizzard_WorldMap")
+    equal(h.FT.overlay, nil)
+    h.inCombat = false; h:Fire("PLAYER_REGEN_ENABLED")
+    assert(h.FT.overlay); equal(#h.map.providers, 1)
+end)
+
+test("recording redraws do not repeatedly set frame levels or refresh native menus", function()
+    local h, overlay = drawnTrail()
+    h.FT.controls.panel:Show()
+    local dropdown = h.FT.controls.colour
+    dropdown:GenerateMenu()
+    local writes, updates = h.frameLevelWrites, dropdown.updateCount
+    for i = 1, 5 do h:Move(0.19 + i * 0.003, 0.2 + (i % 2) * 0.006); h:Frames(4) end
+    equal(h.frameLevelWrites, writes)
+    equal(dropdown.updateCount, updates)
+    assert(overlay.used > 0)
+end)
+
+test("frame-level updates are deferred in combat and applied on recovery", function()
+    local h, overlay = drawnTrail()
+    local previous, writes = overlay.frame:GetFrameLevel(), h.frameLevelWrites
+    h.inCombat = true
+    -- Simulate another provider changing its layer definitions while we are locked.
+    local levels = h.map:GetPinFrameLevelsManager()
+    levels.definitions.PIN_FRAME_LEVEL_MAP_HIGHLIGHT = previous + 1
+    h:Move(0.2, 0.21); h:Frames(4)
+    equal(overlay.frame:GetFrameLevel(), previous)
+    equal(h.frameLevelWrites, writes)
+    equal(h.FT.store.character.pointCount > 0, true)
+    h.inCombat = false; h:Fire("PLAYER_REGEN_ENABLED")
+    assert(overlay.frame:GetFrameLevel() > previous)
+    equal(#h.messages, 0)
+end)
+
+test("history confirmation is not opened or accepted during combat", function()
+    local h = Mock.New(); h:Boot(); h:Move(0.11, 0.2)
+    h.inCombat = true
+    h.FT.ConfirmClear(); equal(h.popup, nil)
+    h.inCombat = false
+    h.FT.ConfirmClear(); assert(h.popup)
+    h.inCombat = true
+    h.popup.OnAccept(); equal(h.FT.store.character.pointCount, 2)
+    h.inCombat = false
+    h.FT.ConfirmClear(); h.popup.OnAccept()
+    equal(h.FT.store.character.pointCount, 0)
+end)
+
+test("blocked-action diagnostics name the function without interrupting recording", function()
+    local h = Mock.New(); h:Boot(); h:Move(0.11, 0.2)
+    local last = h.FT.recorder.last
+    h:Fire("ADDON_ACTION_BLOCKED", "OtherAddon", "SetFrameLevel")
+    equal(#h.messages, 0)
+    h:Fire("ADDON_ACTION_BLOCKED", "ForeverTrails", "SetPreferredGamepadInteractTarget")
+    equal(#h.messages, 1)
+    assert(h.messages[1]:find("SetPreferredGamepadInteractTarget", 1, true))
+    equal(h.FT.recorder.last, last)
+    h:Fire("ADDON_ACTION_BLOCKED", "ForeverTrails", "SetPreferredGamepadInteractTarget")
+    equal(#h.messages, 1)
+    h:Fire("ADDON_ACTION_FORBIDDEN", "ForeverTrails", "SetFrameLevel")
+    equal(#h.messages, 2)
 end)
 
 test("trail ordering follows managed layer changes after a map refresh", function()

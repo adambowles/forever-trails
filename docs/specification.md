@@ -45,9 +45,11 @@ reconstructed from actual points at startup.
 ## Rendering
 
 Attach a data provider and a non-interactive line layer to the stock map canvas.
-Register the trail with the map's frame-level manager above terrain, exploration,
-fog and map highlights, below foreground markers; reapply existing pin levels
-after inserting the trail layer and resolve its current level before rebuilding.
+Read the map's existing frame-level ordering and position only addon-owned frames
+one level above `PIN_FRAME_LEVEL_MAP_HIGHLIGHT`. In the stock Forever map this
+sits in the debug band below normal foreground markers. Do not insert layer
+definitions or re-level Blizzard/other-addon pins. Cache the applied level and
+change it only when needed, outside combat lockdown.
 Let the existing ScrollFrame clip and transform the layer. Rebuild when data, map,
 canvas dimensions or zoom changes; cancel stale jobs when the map changes or closes.
 
@@ -68,6 +70,23 @@ Use a dark border and a preset-coloured centre. The map menu offers Green, Cyan,
 Blue, Gold, Red and White. Store the preset ID in `settings.trailColour`, defaulting
 older or invalid settings to Green. Recolour used lines in both buffers immediately
 without rebuilding geometry; subsequent points use the current setting.
+
+## Protected UI boundaries
+
+Defer the initial map overlay and controls setup during combat lockdown, retrying
+on `PLAYER_REGEN_ENABLED`. Reapply any deferred own-frame level then, without
+breaking the recording segment. Existing unprotected trail drawing and sampling
+can continue during combat.
+
+Recording ticks and render commits update addon-owned status controls only. Native
+dropdown selection updates are handled by its normal show/response lifecycle.
+Do not open the shared history confirmation popup during combat, and recheck before
+accepting deletion; refused deletion is not automatically queued.
+
+Listen for `ADDON_ACTION_BLOCKED` and `ADDON_ACTION_FORBIDDEN` for Forever Trails
+and print the function name once per event/function per UI session. Leave Blizzard's
+warning behaviour intact. This helps identify remaining taint paths; mock tests
+cannot establish that the client is entirely free of taint.
 
 ## Release contract
 
