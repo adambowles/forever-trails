@@ -4,10 +4,20 @@ Overlay.__index = Overlay
 FT.Overlay = Overlay
 local TRAIL_FRAME_LEVEL = "PIN_FRAME_LEVEL_FOREVER_TRAILS"
 
+local function newBuffer(parent)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetAllPoints(parent)
+    frame:EnableMouse(false)
+    frame:Hide()
+    return { frame = frame, lines = {}, used = 0, truncated = false }
+end
+
 function Overlay.New(map)
-    local self = setmetatable({ map = map, lines = {}, used = 0, dirty = true }, Overlay)
+    local self = setmetatable({ map = map, used = 0, dirty = true }, Overlay)
     self.frame = CreateFrame("Frame", nil, map:GetCanvas())
     self.frame:SetAllPoints(map:GetCanvas())
+    self.front, self.back = newBuffer(map:GetCanvas()), newBuffer(map:GetCanvas())
+    self.lines = self.front.lines
     -- Outdoor exploration textures are managed pins well above the base canvas.
     -- Reserve a layer above map art/highlights and below foreground markers.
     local levels = map:GetPinFrameLevelsManager()
@@ -33,14 +43,30 @@ function Overlay.New(map)
 end
 
 function Overlay:ApplyFrameLevel()
-    self.frame:SetFrameLevel(self.map:GetPinFrameLevelsManager():GetValidFrameLevel(TRAIL_FRAME_LEVEL))
+    local level = self.map:GetPinFrameLevelsManager():GetValidFrameLevel(TRAIL_FRAME_LEVEL)
+    self.frame:SetFrameLevel(level)
+    -- Both drawings share the reserved level, keeping foreground pins above them.
+    self.front.frame:SetFrameLevel(level)
+    self.back.frame:SetFrameLevel(level)
 end
 
 function Overlay:Reset()
     self.job, self.truncated = nil, false
     self.frame:SetScript("OnUpdate", nil)
-    for _, pair in ipairs(self.lines) do pair.border:Hide(); pair.trail:Hide() end
+    for _, buffer in ipairs({ self.front, self.back }) do
+        buffer.frame:Hide()
+        buffer.used, buffer.truncated = 0, false
+    end
     self.used = 0
+end
+
+function Overlay:ApplyColour()
+    local colour = FT.GetTrailColour()
+    for _, buffer in ipairs({ self.front, self.back }) do
+        for i = 1, buffer.used do
+            buffer.lines[i].trail:SetColorTexture(colour.r, colour.g, colour.b, 0.9)
+        end
+    end
 end
 
 function Overlay:MarkDirty()
@@ -54,28 +80,33 @@ end
 
 function Overlay:Draw(a, b, width, height, scale)
     if a[1] == b[1] and a[2] == b[2] then return true end
-    if self.used >= FT.config.renderLineLimit then return false end
-    self.used = self.used + 1
-    local pair = self.lines[self.used]
+    local buffer = self.back
+    if buffer.used >= FT.config.renderLineLimit then return false end
+    buffer.used = buffer.used + 1
+    local pair = buffer.lines[buffer.used]
     if not pair then
-        pair = { border = self.frame:CreateLine(nil, "ARTWORK", nil, 0),
-            trail = self.frame:CreateLine(nil, "ARTWORK", nil, 1) }
-        self.lines[self.used] = pair
+        pair = { border = buffer.frame:CreateLine(nil, "ARTWORK", nil, 0),
+            trail = buffer.frame:CreateLine(nil, "ARTWORK", nil, 1) }
+        buffer.lines[buffer.used] = pair
     end
     for _, line in pairs(pair) do
-        line:SetStartPoint("TOPLEFT", self.frame, a[1] * width, -a[2] * height)
-        line:SetEndPoint("TOPLEFT", self.frame, b[1] * width, -b[2] * height)
+        line:SetStartPoint("TOPLEFT", buffer.frame, a[1] * width, -a[2] * height)
+        line:SetEndPoint("TOPLEFT", buffer.frame, b[1] * width, -b[2] * height)
         line:Show()
     end
     pair.border:SetThickness(4 / scale)
     pair.border:SetColorTexture(0.03, 0.06, 0.04, 0.8)
     pair.trail:SetThickness(2 / scale)
-    pair.trail:SetColorTexture(0.30, 0.85, 0.45, 0.9)
+    local colour = FT.GetTrailColour()
+    pair.trail:SetColorTexture(colour.r, colour.g, colour.b, 0.9)
     return true
 end
 
 function Overlay:Begin()
-    self:Reset()
+    -- Keep the completed drawing visible while preparing its replacement off-screen.
+    local buffer = self.back
+    buffer.frame:Hide()
+    buffer.used = 0
     self.dirty = false
     if not FT.store or not FT.db.settings.showTrails then return end
     -- Another map provider may have inserted a layer since the previous draw.
@@ -91,17 +122,33 @@ function Overlay:Begin()
     local segments = FT.store:SegmentsForMap(mapID)
     local count = 0
     self.job = coroutine.create(function()
+        local function checkpoint()
+            count = count + 1
+            if count >= FT.config.renderPointBudget then
+                count = 0
+                coroutine.yield()
+            end
+        end
         local complete = FT.Geometry.Edges(segments, artID, width, height, scale,
-            function(a, b) return self:Draw(a, b, width, height, scale) end,
-            function()
-                count = count + 1
-                if count >= FT.config.renderPointBudget then
-                    count = 0
-                    coroutine.yield()
-                end
-            end)
-        self.truncated = not complete
+            function(a, b) return self:Draw(a, b, width, height, scale) end, checkpoint)
+        -- Retire unused pooled lines before showing a shorter replacement drawing.
+        for i = buffer.used + 1, #buffer.lines do
+            buffer.lines[i].border:Hide()
+            buffer.lines[i].trail:Hide()
+            checkpoint()
+        end
+        buffer.truncated = not complete
     end)
+end
+
+function Overlay:Commit()
+    self.front, self.back = self.back, self.front
+    -- Only completed drawings become visible; the swap occurs within one UI frame.
+    self.front.frame:Show()
+    self.back.frame:Hide()
+    self.lines, self.used = self.front.lines, self.front.used
+    self.truncated = self.front.truncated
+    if FT.controls then FT.controls:Refresh() end
 end
 
 function Overlay:Update()
@@ -109,18 +156,22 @@ function Overlay:Update()
     if not self.job then
         if not self.dirty then self.frame:SetScript("OnUpdate", nil); return end
         self:Begin()
-        -- Reset() removes the script; keep incremental jobs running until complete.
-        self.frame:SetScript("OnUpdate", function() self:Update() end)
     end
-    if not self.job then return end
+    if not self.job then
+        if not self.dirty then self.frame:SetScript("OnUpdate", nil) end
+        return
+    end
     local ok, err = coroutine.resume(self.job)
     if not ok then
-        self:Reset()
+        self.job = nil
+        self.back.frame:Hide()
+        self.back.used = 0
+        self.frame:SetScript("OnUpdate", nil)
         FT.Print("Map overlay stopped: " .. tostring(err))
         return
     end
     if coroutine.status(self.job) == "dead" then
         self.job = nil
-        if FT.controls then FT.controls:Refresh() end
+        self:Commit()
     end
 end

@@ -2,7 +2,7 @@
 
 **Every adventure leaves a trace.**
 
-Forever Trails records your character's travels in WoW: Forever and draws a green
+Forever Trails records your character's travels in WoW: Forever and draws a coloured
 trail on the world map, inspired by Hero's Path in Breath of the Wild.
 
 ## Install
@@ -19,6 +19,9 @@ Recording starts automatically, with a position check **every one second**.
 Open a zone map and click **Trails** to show/hide the trail, pause/resume recording,
 see retained points and the oldest recording, or clear this character's history
 with confirmation. Hiding the overlay does not pause recording.
+
+**Trail colour** offers Green (default), Cyan, Blue, Gold, Red and White presets.
+Changes apply immediately and are remembered across reloads and characters.
 
 | Command | Action |
 | --- | --- |
@@ -44,7 +47,8 @@ The history limits are 200,000 points per character and 500,000 across the accou
 Oldest complete segments are removed when either limit is reached. These are
 point limits, not a promised number of hours of history.
 
-Large overlays are built incrementally with reused line regions. The display
+Large overlays are built incrementally with reused line regions. Completed trails
+stay visible until replacement drawings are ready. The display
 prioritises recent sections and caps visible edges at 4,096; exceeding that cap
 does not delete recordings. The Trails panel reports when the display is capped.
 

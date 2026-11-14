@@ -24,6 +24,16 @@ function FT.SetRecording(enabled)
     FT.Refresh()
 end
 
+function FT.SetTrailColour(id)
+    if not FT.db or not FT.colourByID[id] then return false end
+    if FT.db.settings.trailColour == id then return true end
+    FT.db.settings.trailColour = id
+    -- Recolour visible and partly prepared lines without rebuilding their geometry.
+    if FT.overlay then FT.overlay:ApplyColour() end
+    if FT.controls and FT.controls.panel:IsShown() then FT.controls:Refresh() end
+    return true
+end
+
 function FT.ConfirmClear()
     StaticPopupDialogs.FOREVERTRAILS_CLEAR = {
         text = "Delete all Forever Trails history for this character?",

@@ -51,10 +51,23 @@ after inserting the trail layer and resolve its current level before rebuilding.
 Let the existing ScrollFrame clip and transform the layer. Rebuild when data, map,
 canvas dimensions or zoom changes; cancel stale jobs when the map changes or closes.
 
-Process at most 300 input points per rendered frame. Simplify against a 1.25-pixel
-tolerance, preserve corners, and emit recent segments first. Reuse at most 4,096
-line pairs with a dark border and green centre. Display capping never changes
-stored history. No overlay work runs while the map is closed or trails are hidden.
+Process at most 300 input points or pooled-line cleanups per rendered frame.
+Simplify against a 1.25-pixel tolerance, preserve corners, and emit recent segments
+first. Prepare updated geometry in a hidden buffer while keeping the last completed
+drawing visible; swap buffer visibility only after all geometry and cleanup finish.
+Discard both drawings and pending work when the map changes, trails are hidden,
+history is cleared or canvas dimensions change. Ordinary recording/zoom updates
+keep the completed drawing until its replacement is ready.
+
+Reuse two pools, each capped at 4,096 line pairs (16,384 Line regions total). Both
+buffers share the managed trail level below foreground markers. Display capping
+never changes stored history. No overlay work runs while the map is closed or
+trails are hidden.
+
+Use a dark border and a preset-coloured centre. The map menu offers Green, Cyan,
+Blue, Gold, Red and White. Store the preset ID in `settings.trailColour`, defaulting
+older or invalid settings to Green. Recolour used lines in both buffers immediately
+without rebuilding geometry; subsequent points use the current setting.
 
 ## Release contract
 
