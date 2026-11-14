@@ -8,6 +8,7 @@ The implementation was checked against the `forever` branch of the client UI sou
 - [Map canvas](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/Blizzard_MapCanvas.lua)
 - [Data provider hooks](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/MapCanvas_DataProviderBase.lua)
 - [Scrolling and scaling](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/MapCanvas_ScrollContainerMixin.lua)
+- [Native dropdown menus](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_Menu/11_0_0_MenuImplementationGuide.lua)
 
 API availability is not the same as verified in-game behaviour. Automated tests
 use a strict mock UI/API harness; an actual Forever client was not available in
@@ -21,6 +22,8 @@ these in-game checks.
    with the terrain. Pan, zoom, resize, close and reopen the map.
    Check both an outdoor zone and a city: trails must remain visible over explored
    terrain, with quest markers and the player arrow above them.
+   Keep the map open while moving with a long history: existing trails should stay
+   visible as new points arrive, without disappearing or rebuilding progressively.
 3. Browse another zone while walking. Return to the player's zone and confirm the
    new trail was recorded there.
 4. Stand still for ten minutes. `/ft status` should show only bounded chunk endpoints,
@@ -36,6 +39,10 @@ these in-game checks.
    sessions. Another character should show only its own history.
 9. Check behaviour in combat and with any usual map addons enabled. Restricted
    or secret position values must produce a gap and resume without a Lua error.
+10. Open **Trails → Trail colour** and try each preset. The visible trail should
+    change immediately, including when an update is in progress. Reload and switch
+    characters to confirm the selection persists. Hide/show the trail and change
+    maps while recording to check that an old drawing never appears on the wrong map.
 
 ## Known limits
 

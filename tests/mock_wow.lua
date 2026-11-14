@@ -59,8 +59,40 @@ function Mock.New()
         function line:SetColorTexture(...) self.color = { ... } end
         return line
     end
-    CreateFrame = function(_, _, parent)
+    CreateFrame = function(kind, _, parent, template)
         local result = frame(parent)
+        if kind == "DropdownButton" then
+            assert(template == "WowStyle1DropdownTemplate")
+            result:SetSize(122, 25)
+            function result:SetDefaultText(text) self.defaultText, self.textValue = text, text end
+            function result:GetMenuDescription() return self.menuDescription end
+            function result:Update()
+                self.textValue = self.defaultText
+                for _, radio in ipairs(self.menuDescription or {}) do
+                    if radio.isSelected(radio.data) then self.textValue = radio.label; break end
+                end
+            end
+            function result:GenerateMenu()
+                local root = {}
+                function root:CreateRadio(label, isSelected, select, data)
+                    self[#self + 1] = { label = label, isSelected = isSelected, select = select, data = data }
+                end
+                self.menuGenerator(self, root)
+                self.menuDescription = root
+                self:Update()
+            end
+            function result:SetupMenu(generator)
+                self.menuGenerator = generator
+                if self:IsShown() then self:GenerateMenu() end
+            end
+            function result:Choose(id)
+                self:GenerateMenu() -- native dropdowns regenerate when opening their menu
+                for _, radio in ipairs(self.menuDescription) do
+                    if radio.data == id then radio.select(id); self:Update(); return end
+                end
+                error("Unknown dropdown choice: " .. tostring(id))
+            end
+        end
         h.frames[#h.frames + 1] = result
         return result
     end

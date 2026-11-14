@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+- Fix trail flashing when new points are recorded: keep the completed trail visible
+  while preparing its replacement, then swap drawings within one frame.
+- Add Green, Cyan, Blue, Gold, Red and White presets to the Trails map menu, with
+  immediate colour changes and a saved account-wide selection.
+- Reuse two bounded line pools and discard stale drawings when changing maps,
+  hiding trails or clearing history.
+
 ## 0.1.1
 
 - Fix outdoor trails being hidden beneath explored-terrain textures by using a

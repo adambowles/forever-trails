@@ -10,6 +10,9 @@ function FT.Migrations.Open(db)
     for key, value in pairs(FT.defaults) do
         if db.settings[key] == nil then db.settings[key] = value end
     end
+    if type(db.settings.trailColour) ~= "string" or not FT.colourByID[db.settings.trailColour] then
+        db.settings.trailColour = FT.defaults.trailColour
+    end
     for _, key in ipairs({ "characterPointLimit", "accountPointLimit" }) do
         local value = db.settings[key]
         if not FT.Compat.IsNumber(value) or value < 2 then

@@ -36,6 +36,14 @@ local function segments(store)
     return result
 end
 
+local function drawnTrail()
+    local h = Mock.New(); h:Boot()
+    for i = 1, 30 do h:Move(0.1 + i * 0.003, 0.2 + (i % 2) * 0.006) end
+    h:ShowMap(); h:Frames(4)
+    assert(h.FT.overlay.used > 1)
+    return h, h.FT.overlay
+end
+
 test("one-second sampling and immediate recording after entering world", function()
     local h = Mock.New(); h:Boot()
     equal(#h.tickers, 1); equal(h.tickers[1].interval, 1)
@@ -263,11 +271,164 @@ test("map lines use correct coordinates, pooling and zoom-adjusted thickness", f
     equal(line.finish[1], 100); equal(line.thickness, 2)
     h.map.scale = 2
     overlay.provider:OnCanvasScaleChanged(); h:Frames(4)
-    equal(overlay.lines[1].trail, line); equal(line.thickness, 1)
+    equal(overlay.lines[1].trail.thickness, 1)
     h.map.canvas:SetSize(2000, 1000)
     overlay.provider:OnCanvasSizeChanged(); h:Frames(4)
+    equal(overlay.lines[1].trail, line) -- the two render buffers reuse their line pools
     equal(line.start[1], 220); equal(line.start[2], -200)
     h:HideMap(); equal(overlay.used, 0); equal(overlay.frame.scripts.OnUpdate, nil)
+end)
+
+test("recording updates keep the completed trail visible until the redraw finishes", function()
+    local h, overlay = drawnTrail()
+    local line = overlay.lines[1].trail
+    local x, y, count = line.start[1], line.start[2], overlay.used
+    h.FT.config.renderPointBudget = 2
+    h:Move(0.2, 0.21); h:Frames(1)
+    assert(overlay.job and coroutine.status(overlay.job) == "suspended")
+    assert(line:IsShown(), "Existing trail disappeared during an incremental redraw")
+    equal(overlay.back.frame:IsShown(), false)
+    equal(line.start[1], x); equal(line.start[2], y); equal(overlay.used, count)
+    h:Frames(60)
+    equal(overlay.job, nil)
+    assert(overlay.lines[1].trail:IsShown())
+    equal(overlay.lines[1].trail.start[1], 200)
+    equal(line:IsShown(), false)
+end)
+
+test("points arriving during a redraw queue another update without restarting it", function()
+    local h, overlay = drawnTrail()
+    local front = overlay.front
+    h.FT.config.renderPointBudget = 2
+    h:Move(0.2, 0.21); h:Frames(1)
+    local job = overlay.job
+    h:Move(0.24, 0.22); h:Frames(1)
+    equal(overlay.job, job); equal(overlay.front, front)
+    assert(front.frame:IsShown())
+    h:Frames(80)
+    equal(overlay.job, nil)
+    equal(overlay.lines[1].trail.start[1], 240)
+    equal(#h.messages, 0)
+end)
+
+test("failed redraws retain the last completed trail", function()
+    local h, overlay = drawnTrail()
+    local line, count = overlay.lines[1].trail, overlay.used
+    h.FT.Geometry.Edges = function() error("test redraw failure") end
+    overlay:MarkDirty(); h:Frames(1)
+    equal(overlay.job, nil); equal(overlay.used, count)
+    assert(line:IsShown()); equal(overlay.back.frame:IsShown(), false)
+    assert(h.messages[1]:find("test redraw failure", 1, true))
+end)
+
+test("shorter drawings hide unused pooled lines before their buffer is shown", function()
+    local h, overlay = drawnTrail()
+    overlay:MarkDirty(); h:Frames(4) -- populate both pools
+    local seg = segments(h.FT.store)[1]
+    seg.points = { seg.points[1], seg.points[#seg.points] }
+    h.FT.config.renderPointBudget = 2
+    overlay:MarkDirty(); h:Frames(60)
+    equal(overlay.used, 1); assert(#overlay.lines > 1)
+    for i = 2, #overlay.lines do
+        equal(overlay.lines[i].trail:IsShown(), false)
+        equal(overlay.lines[i].border:IsShown(), false)
+    end
+end)
+
+test("map changes, hiding and deletion discard pending and completed drawings", function()
+    for _, action in ipairs({ "map", "hide", "clear" }) do
+        local h, overlay = drawnTrail()
+        h.FT.config.renderPointBudget = 2
+        h:Move(0.2, 0.21); h:Frames(1)
+        assert(overlay.job)
+        if action == "map" then
+            h.map.mapID = 99; overlay.provider:OnMapChanged()
+        elseif action == "hide" then
+            h.FT.SetVisible(false)
+        else
+            h.FT.ConfirmClear(); h.popup.OnAccept()
+        end
+        equal(overlay.job, nil); equal(overlay.used, 0)
+        equal(overlay.front.frame:IsShown(), false)
+        equal(overlay.back.frame:IsShown(), false)
+        h:Frames(60)
+        equal(overlay.used, 0)
+    end
+end)
+
+test("the map menu offers six presets and recolours existing lines without a redraw", function()
+    local h, overlay = drawnTrail()
+    local dropdown = h.FT.controls.colour
+    local front, revision = overlay.front, h.FT.store.revision
+    local expected = { "Green", "Cyan", "Blue", "Gold", "Red", "White" }
+    h.FT.Geometry.Edges = function() error("Colour changes must not rebuild geometry") end
+    h.FT.controls.panel:Show()
+    dropdown:GenerateMenu()
+    equal(#dropdown:GetMenuDescription(), #expected)
+    for i, preset in ipairs(h.FT.colourPresets) do
+        equal(dropdown:GetMenuDescription()[i].label, expected[i])
+        dropdown:Choose(preset.id)
+        equal(h.FT.db.settings.trailColour, preset.id)
+        equal(dropdown.textValue, preset.name)
+        equal(overlay.front, front); equal(overlay.job, nil)
+        for j = 1, overlay.used do
+            local line = overlay.lines[j].trail
+            assert(line:IsShown())
+            equal(line.color[1], preset.r); equal(line.color[2], preset.g); equal(line.color[3], preset.b)
+        end
+        h:Frames(1)
+    end
+    equal(h.FT.store.revision, revision); equal(#h.messages, 0)
+    equal(h.FT.SetTrailColour("unknown"), false)
+    equal(h.FT.db.settings.trailColour, "white")
+end)
+
+test("changing colour during a redraw updates both buffers and later points", function()
+    local h, overlay = drawnTrail()
+    h.FT.config.renderPointBudget = 2
+    h:Move(0.2, 0.21); h:Frames(3)
+    local job = overlay.job
+    assert(job and overlay.back.used > 0)
+    h.FT.controls.colour:Choose("gold")
+    local gold = h.FT.colourByID.gold
+    equal(overlay.job, job)
+    for _, buffer in ipairs({ overlay.front, overlay.back }) do
+        for i = 1, buffer.used do equal(buffer.lines[i].trail.color[1], gold.r) end
+    end
+    h:Frames(60)
+    equal(overlay.job, nil)
+    for i = 1, overlay.used do
+        equal(overlay.lines[i].trail.color[1], gold.r)
+        equal(overlay.lines[i].trail.color[2], gold.g)
+        equal(overlay.lines[i].trail.color[3], gold.b)
+    end
+end)
+
+test("colour settings survive reload without replacing recorded history", function()
+    local h, overlay = drawnTrail()
+    h.FT.controls.colour:Choose("blue")
+    local saved, oldSession = h.FT.db, h.FT.store.character.sessions[1]
+    local reloaded = Mock.New()
+    ForeverTrailsDB = saved
+    reloaded:Boot()
+    equal(reloaded.FT.db, saved)
+    equal(reloaded.FT.db.settings.trailColour, "blue")
+    equal(reloaded.FT.store.character.sessions[1], oldSession)
+    reloaded.FT.controls.colour:GenerateMenu()
+    equal(reloaded.FT.controls.colour.textValue, "Blue")
+    assert(overlay.used > 0)
+end)
+
+test("older or invalid colour settings default to green while preserving history", function()
+    local h = Mock.New()
+    local old = { schemaVersion = 1, characters = {}, settings = {} }
+    equal(h.FT.Migrations.Open(old), old); equal(old.settings.trailColour, "green")
+    for _, value in ipairs({ "missing", false, 42, {} }) do
+        local characters = {}
+        local db = { schemaVersion = 1, characters = characters, settings = { trailColour = value } }
+        equal(h.FT.Migrations.Open(db), db)
+        equal(db.characters, characters); equal(db.settings.trailColour, "green")
+    end
 end)
 
 test("outdoor trails draw above map art and below quest and player markers", function()
@@ -276,6 +437,10 @@ test("outdoor trails draw above map art and below quest and player markers", fun
     local overlay = h.FT.overlay
     equal(overlay.used, 1)
     local layer = overlay.frame:GetFrameLevel()
+    equal(overlay.front.frame:GetFrameLevel(), layer)
+    equal(overlay.back.frame:GetFrameLevel(), layer)
+    equal(overlay.front.frame.parent, h.map:GetCanvas())
+    equal(overlay.back.frame.parent, h.map:GetCanvas())
     local levels = h.map:GetPinFrameLevelsManager()
     for _, art in ipairs({ "PIN_FRAME_LEVEL_MAP_EXPLORATION", "PIN_FRAME_LEVEL_FOG_OF_WAR",
         "PIN_FRAME_LEVEL_QUEST_BLOB", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT" }) do
@@ -352,6 +517,10 @@ test("display capping retains recordings and reports truncation", function()
     equal(h.FT.store.character.pointCount, count)
     h.FT.controls:Refresh()
     assert(h.FT.controls.status.textValue:find("display limit", 1, true))
+    h.FT.overlay:MarkDirty(); h:Frames(10)
+    for _, buffer in ipairs({ h.FT.overlay.front, h.FT.overlay.back }) do
+        assert(#buffer.lines <= h.FT.config.renderLineLimit)
+    end
 end)
 
 test("clearing history requires confirmation and preserves other characters", function()

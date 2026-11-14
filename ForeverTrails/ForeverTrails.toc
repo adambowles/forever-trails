@@ -2,7 +2,7 @@
 ## Title: Forever Trails
 ## Notes: Every adventure leaves a trace. Record your travels on the world map.
 ## Author: Adam Bowles
-## Version: 0.1.1
+## Version: 0.1.2
 ## SavedVariables: ForeverTrailsDB
 ## IconTexture: Interface\Icons\Ability_Tracking
 
