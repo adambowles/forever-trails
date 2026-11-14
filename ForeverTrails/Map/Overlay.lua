@@ -20,19 +20,39 @@ function Overlay.New(map)
     self.lines = self.front.lines
     self:ApplyFrameLevel()
     self.frame:EnableMouse(false)
-    -- The existing map ScrollFrame clips its scrolling canvas and all descendants.
-    local provider = CreateFromMixins(MapCanvasDataProviderMixin)
-    provider.OnMapChanged = function() self:Reset(); self:MarkDirty() end
-    provider.OnShow = function() self:MarkDirty() end
-    provider.OnHide = function() self:Reset() end
-    provider.RefreshAllData = function() self:MarkDirty() end
-    provider.RemoveAllData = function() self:Reset() end
-    provider.OnCanvasScaleChanged = function() self:MarkDirty() end
-    provider.OnCanvasSizeChanged = function() self:Reset(); self:MarkDirty() end
-    map:AddDataProvider(provider)
-    self.provider = provider
+    -- Observe from a private frame instead of running addon callbacks inside the
+    -- map's show/hide flow, which also changes protected native gamepad bindings.
+    -- The canvas children only contain non-interactive drawing regions.
+    self.observer = CreateFrame("Frame")
+    self.observer:SetScript("OnUpdate", function() self:ObserveMap() end)
     self:MarkDirty()
     return self
+end
+
+function Overlay:ObserveMap()
+    local shown = self.map:IsShown()
+    if FT.controls then FT.controls:SetMapShown(shown) end
+    if not shown then
+        if self.mapShown then self:Reset() end
+        self.mapShown = false
+        return
+    end
+
+    local mapID = self.map:GetMapID()
+    local artID = mapID and (C_Map.GetMapArtID(mapID) or 0)
+    local width, height = self.frame:GetWidth(), self.frame:GetHeight()
+    local scale = self.map:GetCanvasScale()
+    if not self.mapShown or mapID ~= self.mapID or artID ~= self.artID
+        or width ~= self.width or height ~= self.height then
+        self:Reset()
+        self:MarkDirty()
+    elseif scale ~= self.scale then
+        self:MarkDirty()
+    end
+    self.mapShown, self.mapID, self.artID = true, mapID, artID
+    self.width, self.height, self.scale = width, height, scale
+    self:ApplyFrameLevel()
+    if FT.db.settings.showTrails and (self.dirty or self.job) then self:Update() end
 end
 
 function Overlay:ApplyFrameLevel()
@@ -50,7 +70,6 @@ end
 
 function Overlay:Reset()
     self.job, self.truncated = nil, false
-    self.frame:SetScript("OnUpdate", nil)
     for _, buffer in ipairs({ self.front, self.back }) do
         buffer.frame:Hide()
         buffer.used, buffer.truncated = 0, false
@@ -69,9 +88,7 @@ end
 
 function Overlay:MarkDirty()
     self.dirty = true
-    if self.map:IsShown() and FT.db and FT.db.settings.showTrails then
-        self.frame:SetScript("OnUpdate", function() self:Update() end)
-    elseif FT.db and not FT.db.settings.showTrails then
+    if FT.db and not FT.db.settings.showTrails then
         self:Reset()
     end
 end
@@ -142,7 +159,7 @@ end
 function Overlay:Commit()
     self.front, self.back = self.back, self.front
     -- Only completed drawings become visible; the swap occurs within one UI frame.
-    self.front.frame:Show()
+    self.front.frame:SetShown(self.front.used > 0)
     self.back.frame:Hide()
     self.lines, self.used = self.front.lines, self.front.used
     self.truncated = self.front.truncated
@@ -152,19 +169,16 @@ end
 function Overlay:Update()
     if not self.map:IsShown() or not FT.db.settings.showTrails then self:Reset(); return end
     if not self.job then
-        if not self.dirty then self.frame:SetScript("OnUpdate", nil); return end
+        if not self.dirty then return end
         self:Begin()
     end
-    if not self.job then
-        if not self.dirty then self.frame:SetScript("OnUpdate", nil) end
-        return
-    end
+    if not self.job then return end
     local ok, err = coroutine.resume(self.job)
     if not ok then
         self.job = nil
         self.back.frame:Hide()
         self.back.used = 0
-        self.frame:SetScript("OnUpdate", nil)
+        self.dirty = false
         FT.Print("Map overlay stopped: " .. tostring(err))
         return
     end

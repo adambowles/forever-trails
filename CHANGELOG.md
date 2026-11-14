@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.4
+
+- Isolate map updates from the native gamepad focus flow: observe map state from
+  a private frame instead of registering native map data-provider callbacks.
+- Keep Trails controls outside the native map's navigation tree. Replace the
+  shared colour dropdown with six inline, single-selection preset buttons.
+- Replace the shared history popup with a private Delete/Cancel dialog, preserving
+  confirmation and combat checks. Trails controls currently require mouse input.
+- Add regressions for map close/reopen, art changes, private control ownership and
+  forbidden shared UI calls. The supplied log identifies the first blocked call
+  during controller map close; a Forever client is still needed to verify the fix.
+
 ## 0.1.3
 
 - Reduce protected-UI/taint exposure by reading the existing map-layer ordering

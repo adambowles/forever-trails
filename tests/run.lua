@@ -270,13 +270,14 @@ test("map lines use correct coordinates, pooling and zoom-adjusted thickness", f
     equal(line.start[1], 110); equal(line.start[2], -100)
     equal(line.finish[1], 100); equal(line.thickness, 2)
     h.map.scale = 2
-    overlay.provider:OnCanvasScaleChanged(); h:Frames(4)
+    h:Frames(4)
     equal(overlay.lines[1].trail.thickness, 1)
     h.map.canvas:SetSize(2000, 1000)
-    overlay.provider:OnCanvasSizeChanged(); h:Frames(4)
+    h:Frames(4)
     equal(overlay.lines[1].trail, line) -- the two render buffers reuse their line pools
     equal(line.start[1], 220); equal(line.start[2], -200)
-    h:HideMap(); equal(overlay.used, 0); equal(overlay.frame.scripts.OnUpdate, nil)
+    h:HideMap(); h:Frames(1)
+    equal(overlay.used, 0); equal(overlay.frame.scripts.OnUpdate, nil)
 end)
 
 test("recording updates keep the completed trail visible until the redraw finishes", function()
@@ -342,11 +343,11 @@ test("map changes, hiding and deletion discard pending and completed drawings", 
         h:Move(0.2, 0.21); h:Frames(1)
         assert(overlay.job)
         if action == "map" then
-            h.map.mapID = 99; overlay.provider:OnMapChanged()
+            h.map.mapID = 99; h:Frames(1)
         elseif action == "hide" then
             h.FT.SetVisible(false)
         else
-            h.FT.ConfirmClear(); h.popup.OnAccept()
+            h.FT.ConfirmClear(); h.FT.confirmation.delete:Click()
         end
         equal(overlay.job, nil); equal(overlay.used, 0)
         equal(overlay.front.frame:IsShown(), false)
@@ -358,18 +359,21 @@ end)
 
 test("the map menu offers six presets and recolours existing lines without a redraw", function()
     local h, overlay = drawnTrail()
-    local dropdown = h.FT.controls.colour
+    local controls = h.FT.controls
     local front, revision = overlay.front, h.FT.store.revision
     local expected = { "Green", "Cyan", "Blue", "Gold", "Red", "White" }
     h.FT.Geometry.Edges = function() error("Colour changes must not rebuild geometry") end
-    h.FT.controls.panel:Show()
-    dropdown:GenerateMenu()
-    equal(#dropdown:GetMenuDescription(), #expected)
+    controls.button:Click()
+    local count = 0
+    for _ in pairs(controls.colours) do count = count + 1 end
+    equal(count, #expected)
     for i, preset in ipairs(h.FT.colourPresets) do
-        equal(dropdown:GetMenuDescription()[i].label, expected[i])
-        dropdown:Choose(preset.id)
+        equal(preset.name, expected[i])
+        controls.colours[preset.id]:Click()
         equal(h.FT.db.settings.trailColour, preset.id)
-        equal(dropdown.textValue, preset.name)
+        for id, choice in pairs(controls.colours) do equal(choice:GetChecked(), id == preset.id) end
+        controls.colours[preset.id]:Click() -- selected presets cannot be deselected
+        equal(controls.colours[preset.id]:GetChecked(), true)
         equal(overlay.front, front); equal(overlay.job, nil)
         for j = 1, overlay.used do
             local line = overlay.lines[j].trail
@@ -389,7 +393,7 @@ test("changing colour during a redraw updates both buffers and later points", fu
     h:Move(0.2, 0.21); h:Frames(3)
     local job = overlay.job
     assert(job and overlay.back.used > 0)
-    h.FT.controls.colour:Choose("gold")
+    h.FT.controls.colours.gold:Click()
     local gold = h.FT.colourByID.gold
     equal(overlay.job, job)
     for _, buffer in ipairs({ overlay.front, overlay.back }) do
@@ -406,7 +410,7 @@ end)
 
 test("colour settings survive reload without replacing recorded history", function()
     local h, overlay = drawnTrail()
-    h.FT.controls.colour:Choose("blue")
+    h.FT.controls.colours.blue:Click()
     local saved, oldSession = h.FT.db, h.FT.store.character.sessions[1]
     local reloaded = Mock.New()
     ForeverTrailsDB = saved
@@ -414,8 +418,8 @@ test("colour settings survive reload without replacing recorded history", functi
     equal(reloaded.FT.db, saved)
     equal(reloaded.FT.db.settings.trailColour, "blue")
     equal(reloaded.FT.store.character.sessions[1], oldSession)
-    reloaded.FT.controls.colour:GenerateMenu()
-    equal(reloaded.FT.controls.colour.textValue, "Blue")
+    reloaded:ShowMap(); reloaded:Frames(1); reloaded.FT.controls.button:Click()
+    equal(reloaded.FT.controls.colours.blue:GetChecked(), true)
     assert(overlay.used > 0)
 end)
 
@@ -471,6 +475,66 @@ test("trail setup leaves native map definitions and existing pins untouched", fu
     end
 end)
 
+test("map attachment needs no native provider and leaves native handlers untouched", function()
+    local h = Mock.New()
+    MapCanvasDataProviderMixin, CreateFromMixins = nil, nil
+    h.map.SetScript = function() error("Addon must not replace native map scripts") end
+    h.map.HookScript = function() error("Addon must not run inside native map scripts") end
+    h:Boot(); h:Move(0.11, 0.2); h:ShowMap(); h:Frames(4)
+    equal(#h.map.providers, 0)
+    assert(h.FT.overlay.used > 0)
+    equal(h.FT.overlay.frame.scripts.OnUpdate, nil)
+    equal(h.FT.overlay.observer.parent, nil)
+end)
+
+test("map close finishes before private overlay cleanup and controls hide", function()
+    local h, overlay = drawnTrail()
+    local controls = h.FT.controls
+    controls.button:Click(); assert(controls.panel:IsShown())
+    h:HideMap()
+    -- Native HideUIPanel can finish its binding changes without addon callbacks.
+    assert(overlay.used > 0)
+    h:Frames(1)
+    equal(overlay.used, 0); equal(overlay.job, nil)
+    equal(controls.root:IsShown(), false); equal(controls.panel:IsShown(), false)
+    h:Move(0.2, 0.21)
+    h:ShowMap(); h:Frames(4)
+    assert(overlay.used > 0); assert(controls.button:IsShown())
+    equal(controls.panel:IsShown(), false)
+end)
+
+test("interactive controls and confirmation stay outside native map navigation", function()
+    local h, overlay = drawnTrail()
+    h.FT.ConfirmClear()
+    equal(h.FT.controls.root.parent, UIParent)
+    equal(h.FT.confirmation.parent, UIParent)
+    for _, frame in ipairs(h.frames) do
+        if frame.kind == "Button" or frame.kind == "CheckButton" then
+            local parent = frame.parent
+            while parent do
+                assert(parent ~= h.map, "Interactive addon frame entered the native map tree")
+                parent = parent.parent
+            end
+        end
+    end
+    equal(next(StaticPopupDialogs), nil)
+    equal(overlay.front.frame.mouseEnabled, false)
+    equal(overlay.back.frame.mouseEnabled, false)
+end)
+
+test("art changes cancel a partially prepared trail without a native map callback", function()
+    local h, overlay = drawnTrail()
+    h.FT.config.renderPointBudget = 2
+    h:Move(0.2, 0.21); h:Frames(1)
+    local job = overlay.job
+    assert(job)
+    h.artID = 12; h:Frames(1)
+    assert(overlay.job ~= job)
+    equal(overlay.used, 0)
+    h:Frames(60); equal(overlay.used, 0)
+    h.artID = 11; h:Frames(60); assert(overlay.used > 0)
+end)
+
 test("map setup waits for combat to end while recording continues", function()
     local h = Mock.New()
     h.inCombat = true
@@ -480,8 +544,9 @@ test("map setup waits for combat to end while recording continues", function()
     local last = h.FT.recorder.last
     h.inCombat = false; h:Fire("PLAYER_REGEN_ENABLED")
     assert(h.FT.overlay and h.FT.controls)
-    equal(#h.map.providers, 1); equal(h.FT.recorder.last, last)
-    h:Fire("PLAYER_REGEN_ENABLED"); equal(#h.map.providers, 1)
+    equal(#h.map.providers, 0); equal(h.FT.recorder.last, last)
+    local overlay = h.FT.overlay
+    h:Fire("PLAYER_REGEN_ENABLED"); equal(h.FT.overlay, overlay)
     h:ShowMap(); h:Frames(4); equal(h.FT.overlay.used, 1)
 end)
 
@@ -493,18 +558,15 @@ test("a map addon loaded in combat attaches automatically afterwards", function(
     h:Fire("ADDON_LOADED", "Blizzard_WorldMap")
     equal(h.FT.overlay, nil)
     h.inCombat = false; h:Fire("PLAYER_REGEN_ENABLED")
-    assert(h.FT.overlay); equal(#h.map.providers, 1)
+    assert(h.FT.overlay); equal(#h.map.providers, 0)
 end)
 
-test("recording redraws do not repeatedly set frame levels or refresh native menus", function()
+test("recording redraws do not repeatedly set frame levels", function()
     local h, overlay = drawnTrail()
     h.FT.controls.panel:Show()
-    local dropdown = h.FT.controls.colour
-    dropdown:GenerateMenu()
-    local writes, updates = h.frameLevelWrites, dropdown.updateCount
+    local writes = h.frameLevelWrites
     for i = 1, 5 do h:Move(0.19 + i * 0.003, 0.2 + (i % 2) * 0.006); h:Frames(4) end
     equal(h.frameLevelWrites, writes)
-    equal(dropdown.updateCount, updates)
     assert(overlay.used > 0)
 end)
 
@@ -527,13 +589,14 @@ end)
 test("history confirmation is not opened or accepted during combat", function()
     local h = Mock.New(); h:Boot(); h:Move(0.11, 0.2)
     h.inCombat = true
-    h.FT.ConfirmClear(); equal(h.popup, nil)
+    h.FT.ConfirmClear(); equal(h.FT.confirmation, nil)
     h.inCombat = false
-    h.FT.ConfirmClear(); assert(h.popup)
+    h.FT.ConfirmClear(); assert(h.FT.confirmation:IsShown())
     h.inCombat = true
-    h.popup.OnAccept(); equal(h.FT.store.character.pointCount, 2)
+    h.FT.confirmation.delete:Click(); equal(h.FT.store.character.pointCount, 2)
+    equal(h.FT.confirmation:IsShown(), false)
     h.inCombat = false
-    h.FT.ConfirmClear(); h.popup.OnAccept()
+    h.FT.ConfirmClear(); h.FT.confirmation.delete:Click()
     equal(h.FT.store.character.pointCount, 0)
 end)
 
@@ -560,7 +623,7 @@ test("trail ordering follows managed layer changes after a map refresh", functio
     local levels = h.map:GetPinFrameLevelsManager()
     assert(levels:InsertFrameLevelAbove("OTHER_ADDON_LAYER", "PIN_FRAME_LEVEL_MAP_EXPLORATION"))
     h.map:ExecuteOnAllPins(function(pin) pin:ApplyFrameLevel() end)
-    overlay.provider:RefreshAllData(); h:Frames(4)
+    h:Frames(4)
     assert(overlay.frame:GetFrameLevel() > before, "Trail did not follow the shifted layer")
     assert(overlay.frame:GetFrameLevel() > levels:GetValidFrameLevel("PIN_FRAME_LEVEL_MAP_HIGHLIGHT"))
     h:HideMap(); h:ShowMap(); h:Frames(4)
@@ -612,7 +675,10 @@ test("clearing history requires confirmation and preserves other characters", fu
     h.FT.db.characters.B = { name = "Alt", realm = "Forever", pointCount = 0, sessions = {} }
     SlashCmdList.FOREVERTRAILS("clear")
     equal(h.FT.store.character.pointCount, 2)
-    assert(h.popup and h.popup.OnAccept); h.popup.OnAccept()
+    assert(h.FT.confirmation:IsShown()); h.FT.confirmation.cancel:Click()
+    equal(h.FT.confirmation:IsShown(), false); equal(h.FT.store.character.pointCount, 2)
+    SlashCmdList.FOREVERTRAILS("clear")
+    assert(h.FT.confirmation:IsShown()); h.FT.confirmation.delete:Click()
     equal(h.FT.store.character.pointCount, 0); assert(h.FT.db.characters.B)
     h:Move(0.12, 0.2); equal(h.FT.store.character.pointCount, 1)
 end)
