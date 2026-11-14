@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Fix outdoor trails being hidden beneath explored-terrain textures by using a
+  managed map layer above terrain, fog and map highlights, below foreground markers.
+- Keep existing map pins and the trail layer aligned with managed frame levels.
+- Add regression coverage for outdoor layering, existing markers and map refreshes.
+
 ## 0.1.0
 
 - Record character travel at one-second intervals, with simplified straight paths

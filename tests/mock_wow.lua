@@ -83,6 +83,46 @@ function Mock.New()
     function h.map:GetCanvasContainer() return self.container end
     function h.map:GetMapID() return self.mapID end
     function h.map:GetCanvasScale() return self.scale end
+    -- Outdoor map art is drawn by managed pins far above the base canvas.
+    -- Model the native layer insertion/shift contract, including existing pins.
+    h.map.pinFrameLevelsManager = { definitions = {
+        PIN_FRAME_LEVEL_DEFAULT = 2000,
+        PIN_FRAME_LEVEL_MAP_EXPLORATION = 2002,
+        PIN_FRAME_LEVEL_FOG_OF_WAR = 2006,
+        PIN_FRAME_LEVEL_QUEST_BLOB = 2007,
+        PIN_FRAME_LEVEL_MAP_HIGHLIGHT = 2009,
+        PIN_FRAME_LEVEL_DEBUG = 2010,
+        PIN_FRAME_LEVEL_QUEST_OFFER = 2500,
+        PIN_FRAME_LEVEL_GROUP_MEMBER = 4000,
+    } }
+    function h.map.pinFrameLevelsManager:GetValidFrameLevel(name)
+        return assert(self.definitions[name], "Unregistered map frame level: " .. name)
+    end
+    function h.map.pinFrameLevelsManager:InsertFrameLevelAbove(name, relative)
+        if self.definitions[name] or not self.definitions[relative] then return false end
+        local target = self.definitions[relative] + 1
+        for key, level in pairs(self.definitions) do
+            if level >= target then self.definitions[key] = level + 1 end
+        end
+        self.definitions[name] = target
+        return true
+    end
+    function h.map:GetPinFrameLevelsManager() return self.pinFrameLevelsManager end
+    h.map.pins = {}
+    function h.map:ExecuteOnAllPins(callback)
+        for _, pin in ipairs(self.pins) do callback(pin) end
+    end
+    for _, levelType in ipairs({ "PIN_FRAME_LEVEL_MAP_EXPLORATION", "PIN_FRAME_LEVEL_FOG_OF_WAR",
+        "PIN_FRAME_LEVEL_QUEST_BLOB", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT", "PIN_FRAME_LEVEL_DEBUG",
+        "PIN_FRAME_LEVEL_QUEST_OFFER", "PIN_FRAME_LEVEL_GROUP_MEMBER" }) do
+        local pin = CreateFrame("Frame", nil, h.map.canvas)
+        pin.frameLevelType = levelType
+        function pin:ApplyFrameLevel()
+            self:SetFrameLevel(h.map:GetPinFrameLevelsManager():GetValidFrameLevel(self.frameLevelType))
+        end
+        pin:ApplyFrameLevel()
+        h.map.pins[#h.map.pins + 1] = pin
+    end
     function h.map:AddDataProvider(provider)
         self.providers[#self.providers + 1] = provider
         provider:OnAdded(self)

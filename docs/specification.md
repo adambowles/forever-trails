@@ -45,6 +45,9 @@ reconstructed from actual points at startup.
 ## Rendering
 
 Attach a data provider and a non-interactive line layer to the stock map canvas.
+Register the trail with the map's frame-level manager above terrain, exploration,
+fog and map highlights, below foreground markers; reapply existing pin levels
+after inserting the trail layer and resolve its current level before rebuilding.
 Let the existing ScrollFrame clip and transform the layer. Rebuild when data, map,
 canvas dimensions or zoom changes; cancel stale jobs when the map changes or closes.
 

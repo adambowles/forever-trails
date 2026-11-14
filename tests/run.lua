@@ -270,6 +270,55 @@ test("map lines use correct coordinates, pooling and zoom-adjusted thickness", f
     h:HideMap(); equal(overlay.used, 0); equal(overlay.frame.scripts.OnUpdate, nil)
 end)
 
+test("outdoor trails draw above map art and below quest and player markers", function()
+    local h = Mock.New(); h:Boot(); h:Move(0.11, 0.2)
+    h:ShowMap(); h:Frames(4)
+    local overlay = h.FT.overlay
+    equal(overlay.used, 1)
+    local layer = overlay.frame:GetFrameLevel()
+    local levels = h.map:GetPinFrameLevelsManager()
+    for _, art in ipairs({ "PIN_FRAME_LEVEL_MAP_EXPLORATION", "PIN_FRAME_LEVEL_FOG_OF_WAR",
+        "PIN_FRAME_LEVEL_QUEST_BLOB", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT" }) do
+        assert(layer > levels:GetValidFrameLevel(art), "Trail is underneath " .. art)
+    end
+    for _, marker in ipairs({ "PIN_FRAME_LEVEL_DEBUG", "PIN_FRAME_LEVEL_QUEST_OFFER",
+        "PIN_FRAME_LEVEL_GROUP_MEMBER" }) do
+        assert(layer < levels:GetValidFrameLevel(marker), "Trail covers " .. marker)
+    end
+    equal(overlay.frame.parent, h.map:GetCanvas())
+    equal(overlay.frame.mouseEnabled, false)
+end)
+
+test("adding the trail layer updates pins that already exist", function()
+    local h = Mock.New()
+    local before = {}
+    for _, pin in ipairs(h.map.pins) do before[pin] = pin:GetFrameLevel() end
+    h:Boot()
+    local levels = h.map:GetPinFrameLevelsManager()
+    for _, pin in ipairs(h.map.pins) do
+        equal(pin:GetFrameLevel(), levels:GetValidFrameLevel(pin.frameLevelType))
+        if pin.frameLevelType == "PIN_FRAME_LEVEL_QUEST_OFFER" then
+            assert(pin:GetFrameLevel() > before[pin], "Existing marker was not moved above the new layer")
+        end
+    end
+end)
+
+test("trail ordering follows managed layer changes after a map refresh", function()
+    local h = Mock.New(); h:Boot(); h:Move(0.11, 0.2)
+    h:ShowMap(); h:Frames(4)
+    local overlay = h.FT.overlay
+    local before = overlay.frame:GetFrameLevel()
+    local levels = h.map:GetPinFrameLevelsManager()
+    assert(levels:InsertFrameLevelAbove("OTHER_ADDON_LAYER", "PIN_FRAME_LEVEL_MAP_EXPLORATION"))
+    h.map:ExecuteOnAllPins(function(pin) pin:ApplyFrameLevel() end)
+    overlay.provider:RefreshAllData(); h:Frames(4)
+    assert(overlay.frame:GetFrameLevel() > before, "Trail did not follow the shifted layer")
+    assert(overlay.frame:GetFrameLevel() > levels:GetValidFrameLevel("PIN_FRAME_LEVEL_MAP_HIGHLIGHT"))
+    h:HideMap(); h:ShowMap(); h:Frames(4)
+    assert(overlay.frame:GetFrameLevel() < levels:GetValidFrameLevel("PIN_FRAME_LEVEL_QUEST_OFFER"))
+    equal(overlay.used, 1); equal(#h.messages, 0)
+end)
+
 test("geometry does not connect different segments or map-art versions", function()
     local h = Mock.New()
     local emitted = {}

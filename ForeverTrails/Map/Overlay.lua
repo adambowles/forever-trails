@@ -2,12 +2,20 @@ local _, FT = ...
 local Overlay = {}
 Overlay.__index = Overlay
 FT.Overlay = Overlay
+local TRAIL_FRAME_LEVEL = "PIN_FRAME_LEVEL_FOREVER_TRAILS"
 
 function Overlay.New(map)
     local self = setmetatable({ map = map, lines = {}, used = 0, dirty = true }, Overlay)
     self.frame = CreateFrame("Frame", nil, map:GetCanvas())
     self.frame:SetAllPoints(map:GetCanvas())
-    self.frame:SetFrameLevel(map:GetCanvas():GetFrameLevel() + 2)
+    -- Outdoor exploration textures are managed pins well above the base canvas.
+    -- Reserve a layer above map art/highlights and below foreground markers.
+    local levels = map:GetPinFrameLevelsManager()
+    if levels:InsertFrameLevelAbove(TRAIL_FRAME_LEVEL, "PIN_FRAME_LEVEL_MAP_HIGHLIGHT") then
+        -- Inserting a definition shifts higher levels, including already acquired pins.
+        map:ExecuteOnAllPins(function(pin) pin:ApplyFrameLevel() end)
+    end
+    self:ApplyFrameLevel()
     self.frame:EnableMouse(false)
     -- The existing map ScrollFrame clips its scrolling canvas and all descendants.
     local provider = CreateFromMixins(MapCanvasDataProviderMixin)
@@ -22,6 +30,10 @@ function Overlay.New(map)
     self.provider = provider
     self:MarkDirty()
     return self
+end
+
+function Overlay:ApplyFrameLevel()
+    self.frame:SetFrameLevel(self.map:GetPinFrameLevelsManager():GetValidFrameLevel(TRAIL_FRAME_LEVEL))
 end
 
 function Overlay:Reset()
@@ -66,6 +78,8 @@ function Overlay:Begin()
     self:Reset()
     self.dirty = false
     if not FT.store or not FT.db.settings.showTrails then return end
+    -- Another map provider may have inserted a layer since the previous draw.
+    self:ApplyFrameLevel()
     local mapID = self.map:GetMapID()
     local width, height = self.frame:GetWidth(), self.frame:GetHeight()
     local scale = self.map:GetCanvasScale()
