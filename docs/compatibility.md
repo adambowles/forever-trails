@@ -9,6 +9,8 @@ The implementation was checked against the `forever` branch of the client UI sou
 - [Data provider hooks](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/MapCanvas_DataProviderBase.lua)
 - [Scrolling and scaling](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/MapCanvas_ScrollContainerMixin.lua)
 - [Native dropdown menus](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_Menu/11_0_0_MenuImplementationGuide.lua)
+- [Stock world-map layer ordering](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_WorldMap/Blizzard_WorldMap.lua)
+- [Protected frame methods](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/SimpleFrameAPIDocumentation.lua)
 
 API availability is not the same as verified in-game behaviour. Automated tests
 use a strict mock UI/API harness; an actual Forever client was not available in
@@ -43,6 +45,24 @@ these in-game checks.
     change immediately, including when an update is in progress. Reload and switch
     characters to confirm the selection persists. Hide/show the trail and change
     maps while recording to check that an old drawing never appears on the wrong map.
+11. Test map setup while combat-locked after a UI reload. The overlay/controls should
+    attach automatically after combat, while `/ft status` shows recording continuing.
+    Also enter/leave combat with an existing visible trail and colour menu, checking
+    outdoor layering, redraws and the native gamepad UI for blocked-action warnings.
+12. Attempt to clear history in combat, and enter combat with a confirmation already
+    open. Opening/accepting deletion should be refused until out of combat, preserving
+    history. A later deletion must still require a new explicit confirmation.
+
+## If a protected-action warning recurs
+
+The addon now prints the blocked function name to chat once per event/function
+per UI session. Include that name, addon version, combat state and triggering action
+in the report. The warning's actual cause has not yet been confirmed from a client log.
+
+For a full trace, run `/console taintLog 2`, then `/reload`, reproduce the warning
+and inspect `_forever_/Logs/taint.log` after exiting WoW. Disable further logging
+with `/console taintLog 0`. Automated tests cover the guards and mutation boundaries,
+but do not emulate WoW's full secure execution or native gamepad focus system.
 
 ## Known limits
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3
+
+- Reduce protected-UI/taint exposure by reading the existing map-layer ordering
+  and positioning only addon-owned frames, without re-leveling native map pins.
+- Defer map UI creation and frame-level changes until combat ends; keep recording
+  throughout combat and avoid repeating unchanged frame-level writes.
+- Remove native dropdown selection refreshes from recording and redraw updates.
+- Guard history confirmation against combat and report blocked function names in
+  chat once per action/function per session to help diagnose remaining warnings.
+
 ## 0.1.2
 
 - Fix trail flashing when new points are recorded: keep the completed trail visible

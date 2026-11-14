@@ -12,7 +12,11 @@ function Mock.New()
     function Frame:GetWidth() return self.sizeTarget and self.sizeTarget:GetWidth() or self.width or 100 end
     function Frame:GetHeight() return self.sizeTarget and self.sizeTarget:GetHeight() or self.height or 100 end
     function Frame:SetPoint(...) self.anchor = { ... } end
-    function Frame:SetFrameLevel(level) self.level = level end
+    function Frame:SetFrameLevel(level)
+        assert(not h.inCombat, "Frame-level mutation attempted during combat lockdown")
+        h.frameLevelWrites = (h.frameLevelWrites or 0) + 1
+        self.level = level
+    end
     function Frame:GetFrameLevel() return self.level or 100 end
     function Frame:SetFrameStrata(strata) self.strata = strata end
     function Frame:EnableMouse(enabled) self.mouseEnabled = enabled end
@@ -60,6 +64,9 @@ function Mock.New()
         return line
     end
     CreateFrame = function(kind, _, parent, template)
+        if h.inCombat and parent then
+            error("Map UI creation attempted during combat lockdown")
+        end
         local result = frame(parent)
         if kind == "DropdownButton" then
             assert(template == "WowStyle1DropdownTemplate")
@@ -67,6 +74,7 @@ function Mock.New()
             function result:SetDefaultText(text) self.defaultText, self.textValue = text, text end
             function result:GetMenuDescription() return self.menuDescription end
             function result:Update()
+                self.updateCount = (self.updateCount or 0) + 1
                 self.textValue = self.defaultText
                 for _, radio in ipairs(self.menuDescription or {}) do
                     if radio.isSelected(radio.data) then self.textValue = radio.label; break end
@@ -124,6 +132,7 @@ function Mock.New()
         PIN_FRAME_LEVEL_QUEST_BLOB = 2007,
         PIN_FRAME_LEVEL_MAP_HIGHLIGHT = 2009,
         PIN_FRAME_LEVEL_DEBUG = 2010,
+        PIN_FRAME_LEVEL_DIG_SITE = 2014,
         PIN_FRAME_LEVEL_QUEST_OFFER = 2500,
         PIN_FRAME_LEVEL_GROUP_MEMBER = 4000,
     } }
@@ -145,7 +154,7 @@ function Mock.New()
         for _, pin in ipairs(self.pins) do callback(pin) end
     end
     for _, levelType in ipairs({ "PIN_FRAME_LEVEL_MAP_EXPLORATION", "PIN_FRAME_LEVEL_FOG_OF_WAR",
-        "PIN_FRAME_LEVEL_QUEST_BLOB", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT", "PIN_FRAME_LEVEL_DEBUG",
+        "PIN_FRAME_LEVEL_QUEST_BLOB", "PIN_FRAME_LEVEL_MAP_HIGHLIGHT", "PIN_FRAME_LEVEL_DEBUG", "PIN_FRAME_LEVEL_DIG_SITE",
         "PIN_FRAME_LEVEL_QUEST_OFFER", "PIN_FRAME_LEVEL_GROUP_MEMBER" }) do
         local pin = CreateFrame("Frame", nil, h.map.canvas)
         pin.frameLevelType = levelType
@@ -173,6 +182,7 @@ function Mock.New()
     }
     GetServerTime = function() return h.now end
     GetTime = function() return h.tick end
+    InCombatLockdown = function() return h.inCombat or false end
     time = GetServerTime
     date = os.date
     UnitOnTaxi = function() return h.taxi or false end
@@ -197,7 +207,10 @@ function Mock.New()
     end }
     DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) h.messages[#h.messages + 1] = text end }
     SlashCmdList, StaticPopupDialogs = {}, {}
-    StaticPopup_Show = function(name) h.popup = StaticPopupDialogs[name] end
+    StaticPopup_Show = function(name)
+        assert(not h.inCombat, "Shared popup opened during combat lockdown")
+        h.popup = StaticPopupDialogs[name]
+    end
     ForeverTrailsDB = nil
     h.FT = {}
     for line in io.lines("ForeverTrails/ForeverTrails.toc") do

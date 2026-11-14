@@ -30,16 +30,23 @@ function FT.SetTrailColour(id)
     FT.db.settings.trailColour = id
     -- Recolour visible and partly prepared lines without rebuilding their geometry.
     if FT.overlay then FT.overlay:ApplyColour() end
-    if FT.controls and FT.controls.panel:IsShown() then FT.controls:Refresh() end
     return true
 end
 
+local function canClearHistory()
+    if not InCombatLockdown() then return true end
+    FT.Print("History cannot be cleared during combat. Try again afterwards.")
+    return false
+end
+
 function FT.ConfirmClear()
+    if not canClearHistory() then return end
     StaticPopupDialogs.FOREVERTRAILS_CLEAR = {
         text = "Delete all Forever Trails history for this character?",
         button1 = "Delete", button2 = "Cancel", timeout = 0,
         whileDead = true, hideOnEscape = true, preferredIndex = 3,
         OnAccept = function()
+            if not canClearHistory() then return end
             if FT.recorder then FT.recorder:Break("cleared") end
             if FT.store then FT.store:ClearCharacter() end
             if FT.overlay then FT.overlay:Reset() end
@@ -51,6 +58,7 @@ end
 
 function FT.TryAttachMap()
     if not FT.db or FT.overlay or not WorldMapFrame or not MapCanvasDataProviderMixin then return end
+    if InCombatLockdown() then return end -- PLAYER_REGEN_ENABLED retries; sampling continues.
     local map = WorldMapFrame
     if not map.GetCanvas or not map.AddDataProvider then return end
     FT.overlay = FT.Overlay.New(map)
@@ -105,7 +113,7 @@ SLASH_FOREVERTRAILS1 = "/ft"
 SLASH_FOREVERTRAILS2 = "/forevertrails"
 SlashCmdList.FOREVERTRAILS = slash
 
-events:SetScript("OnEvent", function(_, event, name)
+events:SetScript("OnEvent", function(_, event, name, blockedFunction)
     if event == "ADDON_LOADED" then
         if name == addonName then
             local db, err = FT.Migrations.Open(ForeverTrailsDB)
@@ -120,6 +128,19 @@ events:SetScript("OnEvent", function(_, event, name)
     elseif event == "PLAYER_LEAVING_WORLD" or event == "LOADING_SCREEN_ENABLED" or event == "PLAYER_LOGOUT" then
         FT.suspended = true
         if FT.recorder then FT.recorder:Break(event:lower()) end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        FT.TryAttachMap()
+        if FT.overlay then FT.overlay:ApplyFrameLevel() end
+    elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
+        if name == addonName then
+            local functionName = tostring(blockedFunction or "unknown")
+            local key = event .. ":" .. functionName
+            FT.reportedBlockedActions = FT.reportedBlockedActions or {}
+            if not FT.reportedBlockedActions[key] then
+                FT.reportedBlockedActions[key] = true
+                FT.Print("WoW blocked " .. functionName .. ". Please report this function name.")
+            end
+        end
     elseif FT.recorder then
         FT.recorder:Break(event:lower())
     end
@@ -127,6 +148,7 @@ end)
 
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_ENTERING_WORLD", "PLAYER_LEAVING_WORLD",
     "LOADING_SCREEN_ENABLED", "LOADING_SCREEN_DISABLED", "PLAYER_LOGOUT",
-    "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED_INDOORS", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST" }) do
+    "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED_INDOORS", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST",
+    "PLAYER_REGEN_ENABLED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
     events:RegisterEvent(event)
 end

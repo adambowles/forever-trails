@@ -23,6 +23,11 @@ with confirmation. Hiding the overlay does not pause recording.
 **Trail colour** offers Green (default), Cyan, Blue, Gold, Red and White presets.
 Changes apply immediately and are remembered across reloads and characters.
 
+If the map UI first loads during combat, its setup waits until combat ends;
+recording continues. History confirmation is unavailable during combat. If WoW
+reports a blocked action, Forever Trails prints the blocked function name in
+chat so it can be included in a bug report.
+
 | Command | Action |
 | --- | --- |
 | `/ft status` | Version, sampling interval, recording status and storage counts |

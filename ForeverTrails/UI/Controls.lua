@@ -7,7 +7,7 @@ function Controls:Refresh()
     local settings = FT.db.settings
     self.show:SetChecked(settings.showTrails)
     self.record:SetText(settings.recording and "Pause recording" or "Resume recording")
-    if self.colour:GetMenuDescription() then self.colour:Update() end
+    -- Native dropdowns refresh selection on user response/show, not on recording ticks.
     local status = FT.suspended and "Loading / outside world"
         or (not settings.recording and "Paused")
         or (FT.recorder and FT.recorder.status) or "Waiting for position"
