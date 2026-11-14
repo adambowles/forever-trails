@@ -6,9 +6,9 @@ The implementation was checked against the `forever` branch of the client UI sou
 
 - [Map API documentation](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/MapDocumentation.lua)
 - [Map canvas](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/Blizzard_MapCanvas.lua)
-- [Data provider hooks](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/MapCanvas_DataProviderBase.lua)
 - [Scrolling and scaling](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_MapCanvas/MapCanvas_ScrollContainerMixin.lua)
-- [Native dropdown menus](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_Menu/11_0_0_MenuImplementationGuide.lua)
+- [Native gamepad focus manager](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_GamepadSharedUtility/FrameControlsManager.lua)
+- [Native gamepad binding stack](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_GamepadSharedUtility/InputBindingStack/InputBindingManager.lua)
 - [Stock world-map layer ordering](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_WorldMap/Blizzard_WorldMap.lua)
 - [Protected frame methods](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/SimpleFrameAPIDocumentation.lua)
 
@@ -47,17 +47,42 @@ these in-game checks.
     maps while recording to check that an old drawing never appears on the wrong map.
 11. Test map setup while combat-locked after a UI reload. The overlay/controls should
     attach automatically after combat, while `/ft status` shows recording continuing.
-    Also enter/leave combat with an existing visible trail and colour menu, checking
+    Also enter/leave combat with an existing visible trail and preset grid, checking
     outdoor layering, redraws and the native gamepad UI for blocked-action warnings.
 12. Attempt to clear history in combat, and enter combat with a confirmation already
     open. Opening/accepting deletion should be refused until out of combat, preserving
     history. A later deletion must still require a new explicit confirmation.
+13. Enable the native gamepad UI. With a long history, repeatedly open/close the
+    map using the controller, including while a redraw is in progress. With a mouse,
+    open Trails, select colours and cancel/accept history confirmation, then close
+    the map with the controller again. Check for blocked-action warnings after each.
+    Trails controls use mouse input; they deliberately do not take controller focus.
 
 ## If a protected-action warning recurs
 
 The addon now prints the blocked function name to chat once per event/function
 per UI session. Include that name, addon version, combat state and triggering action
-in the report. The warning's actual cause has not yet been confirmed from a client log.
+in the report.
+
+The supplied 14 November 2026 log first blocks at **10:19:22.046**, when
+`WorldMapFrameCloseButton:Click()` closes the map from a native controller binding.
+`HideUIPanel` broadcasts the hide, `FrameControlsManager` removes a binding set,
+and `GamepadMainActionBarFrame:UpdateInteractIcons()` calls the protected
+`SetPreferredGamepadInteractTarget()`. Later chat-global writes and Blizzard's
+blocked-action popup are downstream of that first failure; the trace does not show
+Forever Trails calling the protected function or opening its history confirmation.
+
+The log attributes taint to Forever Trails but does not record its original write,
+so it does not prove which individual addon integration introduced it. The 0.1.4
+mitigation removes addon callbacks from native map lifecycle dispatch, moves
+interactive controls outside the map navigation tree, and replaces shared menus
+and history popups. This addresses the exposed focus boundaries rather than
+adding further combat checks. It requires a fresh reload and in-game verification;
+automated tests cannot establish that it resolves the client-side taint.
+
+Related primary reports: [Questie map cursor taint investigation](https://github.com/Questie/Questie/issues/7899)
+and [native gamepad UI callback/slash-command report](https://us.forums.blizzard.com/en/wow/t/game-crashes-native-gamepad-ui-empty-addon-triggers-blocked-action-popup-loop/2367777).
+Questie's pin-specific workaround does not apply to this addon, which registers no pins.
 
 For a full trace, run `/console taintLog 2`, then `/reload`, reproduce the warning
 and inspect `_forever_/Logs/taint.log` after exiting WoW. Disable further logging

@@ -28,6 +28,10 @@ function Mock.New()
     function Frame:SetChecked(value) self.checked = value end
     function Frame:GetChecked() return self.checked end
     function Frame:SetScript(name, fn) self.scripts[name] = fn end
+    function Frame:Click()
+        if self.kind == "CheckButton" then self.checked = not self.checked end
+        if self.scripts.OnClick then self.scripts.OnClick(self) end
+    end
     function Frame:RegisterEvent(name) self.events[name] = true end
     function Frame:IsShown() return self.shown and (not self.parent or self.parent:IsShown()) end
     function Frame:Show()
@@ -68,39 +72,8 @@ function Mock.New()
             error("Map UI creation attempted during combat lockdown")
         end
         local result = frame(parent)
-        if kind == "DropdownButton" then
-            assert(template == "WowStyle1DropdownTemplate")
-            result:SetSize(122, 25)
-            function result:SetDefaultText(text) self.defaultText, self.textValue = text, text end
-            function result:GetMenuDescription() return self.menuDescription end
-            function result:Update()
-                self.updateCount = (self.updateCount or 0) + 1
-                self.textValue = self.defaultText
-                for _, radio in ipairs(self.menuDescription or {}) do
-                    if radio.isSelected(radio.data) then self.textValue = radio.label; break end
-                end
-            end
-            function result:GenerateMenu()
-                local root = {}
-                function root:CreateRadio(label, isSelected, select, data)
-                    self[#self + 1] = { label = label, isSelected = isSelected, select = select, data = data }
-                end
-                self.menuGenerator(self, root)
-                self.menuDescription = root
-                self:Update()
-            end
-            function result:SetupMenu(generator)
-                self.menuGenerator = generator
-                if self:IsShown() then self:GenerateMenu() end
-            end
-            function result:Choose(id)
-                self:GenerateMenu() -- native dropdowns regenerate when opening their menu
-                for _, radio in ipairs(self.menuDescription) do
-                    if radio.data == id then radio.select(id); self:Update(); return end
-                end
-                error("Unknown dropdown choice: " .. tostring(id))
-            end
-        end
+        result.kind = kind
+        assert(kind ~= "DropdownButton", "Shared dropdowns enter the native gamepad menu flow")
         h.frames[#h.frames + 1] = result
         return result
     end
@@ -114,7 +87,8 @@ function Mock.New()
     MapCanvasDataProviderMixin = {
         OnAdded = function(self, map) self.owningMap = map end,
     }
-    h.map = CreateFrame("Frame")
+    UIParent = frame()
+    h.map = CreateFrame("Frame", nil, UIParent)
     h.map.shown, h.map.mapID, h.map.scale = false, 1, 1
     h.map.canvas, h.map.container = CreateFrame("Frame", nil, h.map), CreateFrame("Frame", nil, h.map)
     h.map.canvas:SetSize(1000, 500)
@@ -164,9 +138,8 @@ function Mock.New()
         pin:ApplyFrameLevel()
         h.map.pins[#h.map.pins + 1] = pin
     end
-    function h.map:AddDataProvider(provider)
-        self.providers[#self.providers + 1] = provider
-        provider:OnAdded(self)
+    function h.map:AddDataProvider()
+        error("Addon must not register callbacks inside the native map flow")
     end
     WorldMapFrame = h.map
     C_Map = {
@@ -207,9 +180,8 @@ function Mock.New()
     end }
     DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) h.messages[#h.messages + 1] = text end }
     SlashCmdList, StaticPopupDialogs = {}, {}
-    StaticPopup_Show = function(name)
-        assert(not h.inCombat, "Shared popup opened during combat lockdown")
-        h.popup = StaticPopupDialogs[name]
+    StaticPopup_Show = function()
+        error("Shared popups enter the native gamepad focus flow")
     end
     ForeverTrailsDB = nil
     h.FT = {}

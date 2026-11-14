@@ -30,6 +30,7 @@ function FT.SetTrailColour(id)
     FT.db.settings.trailColour = id
     -- Recolour visible and partly prepared lines without rebuilding their geometry.
     if FT.overlay then FT.overlay:ApplyColour() end
+    if FT.controls then FT.controls:Refresh() end
     return true
 end
 
@@ -41,26 +42,25 @@ end
 
 function FT.ConfirmClear()
     if not canClearHistory() then return end
-    StaticPopupDialogs.FOREVERTRAILS_CLEAR = {
-        text = "Delete all Forever Trails history for this character?",
-        button1 = "Delete", button2 = "Cancel", timeout = 0,
-        whileDead = true, hideOnEscape = true, preferredIndex = 3,
-        OnAccept = function()
+    if not FT.confirmation then
+        FT.confirmation = FT.Controls.NewConfirmation(function()
+            -- A refused acceptance must require a new explicit confirmation.
+            FT.confirmation:Hide()
             if not canClearHistory() then return end
             if FT.recorder then FT.recorder:Break("cleared") end
             if FT.store then FT.store:ClearCharacter() end
             if FT.overlay then FT.overlay:Reset() end
             FT.Refresh()
-        end,
-    }
-    StaticPopup_Show("FOREVERTRAILS_CLEAR")
+        end)
+    end
+    FT.confirmation:Show()
 end
 
 function FT.TryAttachMap()
-    if not FT.db or FT.overlay or not WorldMapFrame or not MapCanvasDataProviderMixin then return end
+    if not FT.db or FT.overlay or not WorldMapFrame then return end
     if InCombatLockdown() then return end -- PLAYER_REGEN_ENABLED retries; sampling continues.
     local map = WorldMapFrame
-    if not map.GetCanvas or not map.AddDataProvider then return end
+    if not map.GetCanvas then return end
     FT.overlay = FT.Overlay.New(map)
     FT.controls = FT.Controls.New(map)
 end

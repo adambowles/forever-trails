@@ -44,7 +44,10 @@ reconstructed from actual points at startup.
 
 ## Rendering
 
-Attach a data provider and a non-interactive line layer to the stock map canvas.
+Attach only non-interactive drawing frames to the stock map canvas. Observe map
+visibility, map/art IDs, canvas dimensions and scale from a private update frame;
+do not register data providers, map script hooks or native event-registry callbacks.
+When closed, the observer only checks visibility and no geometry work runs.
 Read the map's existing frame-level ordering and position only addon-owned frames
 one level above `PIN_FRAME_LEVEL_MAP_HIGHLIGHT`. In the stock Forever map this
 sits in the debug band below normal foreground markers. Do not insert layer
@@ -63,11 +66,12 @@ keep the completed drawing until its replacement is ready.
 
 Reuse two pools, each capped at 4,096 line pairs (16,384 Line regions total). Both
 buffers share the managed trail level below foreground markers. Display capping
-never changes stored history. No overlay work runs while the map is closed or
-trails are hidden.
+never changes stored history. No geometry work runs while the map is closed or
+trails are hidden; the lightweight state observer continues to detect reopening.
 
 Use a dark border and a preset-coloured centre. The map menu offers Green, Cyan,
-Blue, Gold, Red and White. Store the preset ID in `settings.trailColour`, defaulting
+Blue, Gold, Red and White as inline, single-selection preset buttons. Store the
+preset ID in `settings.trailColour`, defaulting
 older or invalid settings to Green. Recolour used lines in both buffers immediately
 without rebuilding geometry; subsequent points use the current setting.
 
@@ -78,10 +82,16 @@ on `PLAYER_REGEN_ENABLED`. Reapply any deferred own-frame level then, without
 breaking the recording segment. Existing unprotected trail drawing and sampling
 can continue during combat.
 
-Recording ticks and render commits update addon-owned status controls only. Native
-dropdown selection updates are handled by its normal show/response lifecycle.
-Do not open the shared history confirmation popup during combat, and recheck before
-accepting deletion; refused deletion is not automatically queued.
+Keep interactive controls on a private `UIParent` root anchored to the map, outside
+the native map's descendant/navigation tree. Synchronise their visibility from the
+observer, hiding the panel on map close. Recording ticks and render commits update
+addon-owned status controls only. Use no shared dropdown/MenuProxy or StaticPopup
+for addon controls. The Trails panel and its private Delete/Cancel dialog require
+mouse input; they do not register native controller focus or bindings.
+
+Do not open history confirmation during combat, and recheck before accepting
+deletion. Hide the confirmation on acceptance even if combat prevents deletion;
+refused deletion is not automatically queued.
 
 Listen for `ADDON_ACTION_BLOCKED` and `ADDON_ACTION_FORBIDDEN` for Forever Trails
 and print the function name once per event/function per UI session. Leave Blizzard's

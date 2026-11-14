@@ -22,6 +22,8 @@ with confirmation. Hiding the overlay does not pause recording.
 
 **Trail colour** offers Green (default), Cyan, Blue, Gold, Red and White presets.
 Changes apply immediately and are remembered across reloads and characters.
+The Trails panel and its deletion confirmation use mouse input; they do not join
+the native controller navigation. Normal controller map navigation remains native.
 
 If the map UI first loads during combat, its setup waits until combat ends;
 recording continues. History confirmation is unavailable during combat. If WoW
