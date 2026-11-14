@@ -19,6 +19,8 @@ these in-game checks.
 1. Enable Lua errors with `/console scriptErrors 1`. Log in with only Forever Trails enabled.
 2. Walk a loop with several sharp turns. Open its zone map: the loop should align
    with the terrain. Pan, zoom, resize, close and reopen the map.
+   Check both an outdoor zone and a city: trails must remain visible over explored
+   terrain, with quest markers and the player arrow above them.
 3. Browse another zone while walking. Return to the player's zone and confirm the
    new trail was recorded there.
 4. Stand still for ten minutes. `/ft status` should show only bounded chunk endpoints,
